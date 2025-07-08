@@ -25,25 +25,18 @@ const firebaseConfig = {
     messagingSenderId: "176171475789",
     appId: "1:176171475789:web:cd836ece7b9019e1d20d04",
     measurementId: "G-PXE84LFLJS",
-    // IMPORTANTE: Adicione o databaseURL, que é específico para o Realtime Database
     databaseURL: "https://escala-plantonistas-app-default-rtdb.firebaseio.com" 
 };
 
 // Inicialize o Firebase usando a versão compat (que você carregou no HTML)
 const app = firebase.initializeApp(firebaseConfig);
-// Para este projeto de sincronização, não precisamos do analytics agora, então vou comentar.
-// const analytics = getAnalytics(app); 
 
 // Obtenha uma referência para o Realtime Database
 const database = firebase.database();
-// Crie uma referência para o nó 'modifiedSchedule' no seu banco de dados
-// É aqui que suas trocas serão armazenadas
 const modifiedScheduleRef = database.ref('modifiedSchedule');
 
 // Função para SALVAR as trocas no Firebase
 function saveModifiedScheduleToFirebase(scheduleData) {
-    // Definir os dados na sua referência. Isso sobrescreve os dados existentes nesse nó.
-    // As datas são convertidas para string ISO para serem salvas corretamente no Firebase.
     const dataToSave = scheduleData.map(item => ({
         ...item,
         startDate: item.startDate.toISOString(),
@@ -65,7 +58,7 @@ function saveModifiedScheduleToFirebase(scheduleData) {
 // =====================================================================
 
 
-// Funções auxiliares (Sem alterações)
+// Funções auxiliares (Mantenha as suas funções auxiliares aqui)
 function getDiffWeeks(date1, date2) {
     const d1 = new Date(date1.getFullYear(), date1.getMonth(), date1.getDate());
     const d2 = new Date(date2.getFullYear(), date2.getMonth(), date2.getDate());
@@ -94,35 +87,77 @@ function formatDate(date) {
     return `${day}/${month}/${year}`;
 }
 
-// Geração da escala com persistência de trocas
+// =====================================================================
+// NOVA FUNÇÃO AUXILIAR: Determina o mês dominante em uma semana
+// =====================================================================
+function getDominantMonthForWeek(weekStart, weekEnd) {
+    const counts = {}; // Armazena a contagem de dias por 'ano-mes'
+    let tempDate = new Date(weekStart);
+
+    while (tempDate <= weekEnd) {
+        const yearMonthKey = `${tempDate.getFullYear()}-${tempDate.getMonth()}`;
+        counts[yearMonthKey] = (counts[yearMonthKey] || 0) + 1;
+        tempDate.setDate(tempDate.getDate() + 1);
+    }
+
+    let dominantMonthYear = null;
+    let maxDays = 0;
+
+    for (const key in counts) {
+        if (counts[key] > maxDays) {
+            maxDays = counts[key];
+            dominantMonthYear = key;
+        }
+    }
+
+    if (dominantMonthYear) {
+        const [year, month] = dominantMonthYear.split('-').map(Number);
+        return { year, month, days: maxDays };
+    }
+    return null; 
+}
+// =====================================================================
+
+
+// Geração da escala com persistência de trocas (MODIFICADA)
 function generateSchedule(year, month) {
     const schedule = [];
     const firstDayOfMonth = new Date(year, month, 1);
     const lastDayOfMonth = new Date(year, month + 1, 0);
 
     let currentWeekStart = new Date(firstDayOfMonth);
-    while (currentWeekStart.getDay() !== 1) { // Ajusta para a segunda-feira da semana que contém o dia 1 do mês
+    // Ajusta para a segunda-feira da semana que contém o dia 1 do mês
+    while (currentWeekStart.getDay() !== 1) {
         currentWeekStart.setDate(currentWeekStart.getDate() - 1);
     }
 
     let weekCounter = 1;
-    // Garante que currentWeekStart não esteja muito no passado do mês anterior
-    // Isso é importante para meses onde o dia 1 começa no meio da semana anterior
-    let iterationLimit = new Date(year, month + 2, 0); // Vai até o final do próximo mês para garantir todas as semanas
+    // Loop para cobrir todas as semanas que podem pertencer ao mês atual
+    // Ele vai até o final da semana que contém o último dia do mês,
+    // ou até 6 semanas após o início, o que for mais abrangente.
+    let loopEnd = new Date(lastDayOfMonth);
+    loopEnd.setDate(loopEnd.getDate() + (7 - loopEnd.getDay() + 1)); // Vai para a próxima segunda-feira após o fim do mês
     
-    while (currentWeekStart <= lastDayOfMonth || (currentWeekStart.getMonth() === month && currentWeekStart.getFullYear() === year) || currentWeekStart < iterationLimit) {
+    // Para garantir que pegamos as semanas do início do próximo mês que começam no final do mês atual
+    let iterationLimit = new Date(year, month, 1);
+    iterationLimit.setDate(iterationLimit.getDate() + 6 * 7); // 6 semanas para garantir cobertura total de qualquer mês
+
+    while (currentWeekStart <= iterationLimit) {
         const weekEnd = new Date(currentWeekStart);
         weekEnd.setDate(weekEnd.getDate() + 6);
 
-        const daysInThisMonth = countDaysInMonth(currentWeekStart, weekEnd, month, year);
+        // =====================================================================
+        // MODIFICAÇÃO: Usar a função getDominantMonthForWeek
+        // =====================================================================
+        const dominantInfo = getDominantMonthForWeek(currentWeekStart, weekEnd);
         
-        if (daysInThisMonth >= 4 || (currentWeekStart.getMonth() === month || weekEnd.getMonth() === month)) { // Inclui semanas que abrangem o mês mas têm menos de 4 dias no mês
+        // Inclui a semana apenas se o mês alvo (year, month) for o mês dominante da semana
+        if (dominantInfo && dominantInfo.year === year && dominantInfo.month === month) {
             const weeksSinceReference = getDiffWeeks(scheduleStartReference, currentWeekStart);
             let supportPerson = supportTeam[weeksSinceReference % supportTeam.length];
             
             // Verifica se há modificação para esta semana
             const modifiedWeek = modifiedSchedule.find(w => {
-                // Compara getTime() para objetos Date convertidos corretamente
                 return w.startDate && new Date(w.startDate).getTime() === currentWeekStart.getTime();
             });
             
@@ -135,22 +170,19 @@ function generateSchedule(year, month) {
                 period: `${formatDate(currentWeekStart)} - ${formatDate(weekEnd)}`,
                 support: supportPerson.name,
                 phone: supportPerson.phone,
-                startDate: new Date(currentWeekStart), // Garante que é um objeto Date
-                endDate: new Date(weekEnd) // Garante que é um objeto Date
+                startDate: new Date(currentWeekStart), 
+                endDate: new Date(weekEnd)
             });
             weekCounter++;
         }
+        // =====================================================================
 
         currentWeekStart.setDate(currentWeekStart.getDate() + 7);
-         // Se a semana atual passou completamente do mês e já iteramos mais do que o necessário, pare.
-        if (currentWeekStart > lastDayOfMonth && currentWeekStart.getMonth() !== month) {
-            break; 
-        }
     }
     return schedule;
 }
 
-// Renderização (Mantenha esta função como está)
+// Renderização (Com uma pequena correção para contactsTableBody)
 function renderSchedule(year, month) {
     const scheduleData = generateSchedule(year, month);
     const tableBody = document.getElementById('scheduleTableBody');
@@ -171,17 +203,12 @@ function renderSchedule(year, month) {
             todayOnCall = week;
         }
         
-        // Verifica se a primeira semana do mês contém o dia 1 do mês
-        // ou se é a semana que 'pelo menos começa' no mês
-        const monthFirstDay = new Date(year, month, 1);
-        if (!firstDayOnCall && week.startDate <= monthFirstDay && week.endDate >= monthFirstDay) {
-             firstDayOnCall = week;
-        } else if (!firstDayOnCall && week.startDate.getMonth() === month && week.startDate.getDate() <= 7) {
-            // Se a primeira semana calculada está dentro do mês e nos primeiros 7 dias
+        // Encontra a primeira semana visível para exibir informações do primeiro sobreaviso
+        // Modificado para pegar a primeira semana gerada para o mês, independentemente de conter o dia 1
+        if (!firstDayOnCall) { 
             firstDayOnCall = week;
         }
-
-
+        
         row.insertCell().textContent = week.weekNum;
         row.insertCell().textContent = week.period;
         row.insertCell().textContent = week.support;
@@ -196,7 +223,7 @@ function renderSchedule(year, month) {
     
     // Preenche contatos
     supportTeam.forEach(member => {
-        const row = contactsBody.insertRow(); // Era contactsBody.insertCell(), corrigi para insertRow()
+        const row = contactsBody.insertRow(); // Corrigido de .insertCell() para .insertRow()
         row.insertCell().textContent = member.name;
         row.insertCell().textContent = member.phone;
     });
@@ -237,7 +264,7 @@ function updateOnCallInfo(onCallWeek, year, month) {
     `;
 }
 
-// Sistema de trocas (Mantenha esta função como está)
+// Sistema de trocas (Sem alterações)
 function handleSwap(week) {
     currentWeekToSwap = week;
     
@@ -323,7 +350,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (passwordInput.style.display === 'none') {
             passwordInput.style.display = 'block';
         } else {
-            // SENHA: labmaia123 (altere para a senha real que desejar)
+            // SENHA: labmaia123
             if (passwordInput.value === "labmaia123") {
                 isAdmin = true;
                 passwordInput.style.display = 'none';
@@ -331,7 +358,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 const btn = document.getElementById('adminLoginBtn');
                 btn.textContent = 'Admin Logado';
                 btn.style.backgroundColor = '#4CAF50';
-                // Salva o estado de login
                 localStorage.setItem('adminLoggedIn', 'true');
             } else {
                 alert('Senha incorreta!');
@@ -353,44 +379,34 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('swapModal').style.display = 'none';
     });
     
-    // Confirmar Troca (MODIFICADA PARA USAR FIREBASE)
+    // Confirmar Troca (Firebase já integrado)
     document.getElementById('confirmSwap').addEventListener('click', () => {
         if (!currentWeekToSwap) return;
         
         const select = document.getElementById('newSupportSelect');
         const newSupport = select.value;
         
-        // Atualiza os dados no array local 'modifiedSchedule'
         const existingIndex = modifiedSchedule.findIndex(w => {
-            // Compara o timestamp para garantir que é a mesma semana
             return new Date(w.startDate).getTime() === currentWeekToSwap.startDate.getTime();
         });
         
         if (existingIndex >= 0) {
             modifiedSchedule[existingIndex].support = newSupport;
         } else {
-            // Se a semana não existe, adiciona uma nova modificação
             modifiedSchedule.push({
                 weekNum: currentWeekToSwap.weekNum,
                 period: currentWeekToSwap.period,
-                // As datas já serão convertidas para ISO string na função saveModifiedScheduleToFirebase
                 startDate: currentWeekToSwap.startDate, 
                 endDate: currentWeekToSwap.endDate,
                 support: newSupport,
-                phone: supportTeam.find(m => m.name === newSupport)?.phone || '' // Adiciona o telefone do novo suporte
+                phone: supportTeam.find(m => m.name === newSupport)?.phone || '' 
             });
         }
         
-        // =====================================================================
-        // MODIFICAÇÃO: Salvar no Firebase em vez de localStorage
-        // =====================================================================
         saveModifiedScheduleToFirebase(modifiedSchedule); 
-        // =====================================================================
         
-        // A renderização e o alerta serão acionados automaticamente
-        // pelo listener do Firebase quando os dados forem atualizados.
         document.getElementById('swapModal').style.display = 'none';
-        currentWeekToSwap = null; // Limpa a semana após a troca
+        currentWeekToSwap = null; 
     });
     
     // Fechar modal clicando fora (Sem alterações)
@@ -400,19 +416,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // =====================================================================
-    // MODIFICAÇÃO: Listener do Firebase para carregar e renderizar
-    // =====================================================================
-    // Este listener é chamado uma vez no início e SEMPRE que os dados mudam no Firebase
+    // Listener do Firebase para carregar e renderizar (Já integrado)
     modifiedScheduleRef.on('value', (snapshot) => {
-        const data = snapshot.val(); // Pega os dados do Firebase
-        // O Firebase pode retornar um objeto se houver chaves automáticas.
-        // Convertemos para array se necessário.
-        // Se 'data' for null (banco de dados vazio), initialize com um array vazio.
+        const data = snapshot.val(); 
         modifiedSchedule = data ? Object.values(data) : []; 
         
-        // IMPORTANTE: As datas são salvas como strings ISO no Firebase.
-        // Precisamos convertê-las de volta para objetos Date ao carregar.
         modifiedSchedule.forEach(item => {
             if (typeof item.startDate === 'string') {
                 item.startDate = new Date(item.startDate);
@@ -422,12 +430,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-        // Agora que os dados modificados foram carregados, renderize a escala.
         renderSchedule(currentDate.getFullYear(), currentDate.getMonth());
         console.log("Dados da escala atualizados do Firebase.");
     });
-    // =====================================================================
-
-    // A renderização inicial agora é feita pelo listener do Firebase
-    // renderSchedule(currentDate.getFullYear(), currentDate.getMonth()); // Remova esta linha
 });
