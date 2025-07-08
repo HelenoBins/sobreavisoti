@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sobreaviso LabMaia - Escala Mensal</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header-section">
+            <h1>SOBREAVISO</h1>
+            <div id="monthYearHeader" class="month-year-header"></div>
+        </div>
+
+        <div class="month-navigation">
+            <button id="prevMonth">Mês Anterior</button>
+            <select id="monthSelect"></select>
+            <select id="yearSelect"></select>
+            <span id="currentMonthDisplay" class="month-display"></span>
+            <button id="nextMonth">Próximo Mês</button>
+        </div>
+
+        <div id="oncall-today-info" class="oncall-today-info"></div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>SEMANAS</th>
+                    <th>PERÍODO</th>
+                    <th>SUPORTE</th>
+                    <th>TROCA</th>
+                </tr>
+            </thead>
+            <tbody id="scheduleTableBody"></tbody>
+        </table>
+
+        <div class="contacts">
+            <h2>CONTATOS</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Telefone</th>
+                    </tr>
+                </thead>
+                <tbody id="contactsTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="swapModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Trocar Plantonista</h2>
+            <p>Período: <span id="modalPeriod"></span></p>
+            <select id="newSupportSelect" class="modal-select"></select>
+            <button id="confirmSwap" class="modal-btn">Confirmar Troca</button>
+        </div>
+    </div>
+
+    <div class="admin-login">
+        <button id="adminLoginBtn">Acesso Admin</button>
+        <input type="password" id="adminPassword" placeholder="Senha" style="display: none;">
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
